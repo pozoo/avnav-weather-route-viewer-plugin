@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+
+# local working files, not published
+BRIEF.md
+todo.md
+*.gpx
+docs/
+test/

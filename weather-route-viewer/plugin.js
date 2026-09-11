@@ -1,7 +1,8 @@
 /*
- * AvNav weather routing plugin - Phase 1.
- * Loads a weather-routing GPX (from SailRouter) as a reference route and
- * draws it on the chart with a boat marker that follows time.
+ * AvNav weather route viewer.
+ * Loads a weather-routing GPX (route points with times and wind/boat/wave
+ * data in the urn:weather-router:gpx:2 extension namespace) as a reference
+ * route and draws it on the chart with a boat marker that follows time.
  *
  * Legacy plugin API only (avnav.api.registerWidget). One IIFE, no modules,
  * no build step - this file is loaded as a plain <script>.
@@ -12,18 +13,23 @@
     var WR_NS = 'urn:weather-router:gpx:2';
 
     // -----------------------------------------------------------------
-    // module state - shared between the map widget and (later phases)
-    // the scrub control. Kept here (not in the widget context) because
-    // several widgets need to see/change the same route & time.
+    // module state - shared between the map widget, the scrub control and
+    // the detail widget. Kept here (not in a widget context) because all
+    // of them need to see/change the same route & time.
     // -----------------------------------------------------------------
     var state = {
-        route: null,         // parsed route, see parseGpx()
-        routeFile: null,      // name of the loaded file (or '' while none requested yet)
+        route: null,          // parsed route, see parseGpx()
+        routeFile: null,      // requested file name ('' = first .gpx), null before the first load
+        loadedFile: null,     // name of the file actually loaded
+        loadedTime: null,     // its modification time from /api/user/list
+        loadedSize: null,     // its size from /api/user/list
         loading: false,
         loadError: null,
-        selectedIndex: 0,     // waypoint index - used by the (future) scrub control
+        selectedIndex: 0,     // waypoint index selected by the scrub control
         mode: 'live',         // 'live' | 'scrub'
-        scrubTime: null       // set by the scrub control in a later phase
+        scrubTime: null,      // time of the selected waypoint while scrubbing
+        lastRenderProps: null, // last props seen by drawRoute(), for inspection
+        lastStyle: null
     };
 
     var contexts = [];        // registered widget contexts, for notify()
@@ -40,7 +46,7 @@
     }
 
     // re-renders every registered widget context - called whenever state
-    // that affects drawing changes (route loaded, timer tick, later: scrub)
+    // that affects drawing changes (route loaded, timer tick, scrubbing)
     function notify() {
         contexts.forEach(function (context) {
             if (!context) return;
@@ -54,11 +60,10 @@
     // -----------------------------------------------------------------
 
     // live time comes from the store (nav.gps.rtime) when available,
-    // otherwise the browser clock. This is the accessor a future scrub
-    // mode overrides - keep all reads going through getDisplayTime().
+    // otherwise the browser clock. Scrub mode overrides it in
+    // getDisplayTime() - keep all reads going through that.
     // nav.gps.rtime arrives as a JS Date object (confirmed against the
-    // viewer bundle), but accept a plain epoch-seconds number too so the
-    // unit tests can drive it without a Date.
+    // viewer bundle), but accept a plain epoch-seconds number too.
     function getLiveTime(props) {
         var r = props && props.rtime;
         if (r instanceof Date) return r.getTime() / 1000;
@@ -72,7 +77,7 @@
     }
 
     // -----------------------------------------------------------------
-    // scrub control - pure stepping logic (unit tested) plus the module
+    // scrub control - pure stepping logic plus the module
     // state transitions it drives. Kept next to the time helpers because
     // it is really just another way of picking "the displayed time".
     // -----------------------------------------------------------------
@@ -85,7 +90,7 @@
     }
 
     // one step of ◀/▶, clamped at both ends of the route. Pure function,
-    // no module state - this is what the unit tests drive directly.
+    // no module state.
     function stepIndex(current, delta, length) {
         return clampIndex(current + delta, length);
     }
@@ -140,7 +145,7 @@
     // AvNav widget - not the GPX's own UTC timestamps. Delegates to AvNav's
     // own formatter when available (so the plugin automatically follows
     // whatever convention AvNav itself uses); the pure fallback - used when
-    // there is no avnav.api, i.e. the node unit tests - reproduces the same
+    // there is no avnav.api - reproduces the same
     // "HH:MM" from the Date object's local getters.
     function formatClock(t) {
         var d = new Date(t * 1000);
@@ -170,16 +175,6 @@
         deg = deg % 360;
         if (deg < 0) deg += 360;
         return deg;
-    }
-
-    // shortest-way interpolation between two compass angles, handles the
-    // 0/360 wraparound.
-    function interpolateAngle(a, b, frac) {
-        a = normalizeAngle(a);
-        b = normalizeAngle(b);
-        var diff = normalizeAngle(b - a);
-        if (diff > 180) diff -= 360;
-        return normalizeAngle(a + diff * frac);
     }
 
     // -----------------------------------------------------------------
@@ -226,7 +221,7 @@
         return p;
     }
 
-    // parses the SailRouter GPX into {name, units, points[], start, end}.
+    // parses the GPX into {name, units, settings, points[], start, end}.
     // Prefers <rte>, falls back to <trk>. Missing fields are simply absent.
     function parseGpx(xmlText) {
         var doc = new DOMParser().parseFromString(xmlText, 'text/xml');
@@ -378,7 +373,7 @@
     }
 
     // -----------------------------------------------------------------
-    // wind barbs - pure logic (unit tested without a canvas).
+    // wind barbs - pure logic, no canvas needed.
     // Standard meteorological barb: speed rounded to the nearest 5 kn,
     // decomposed into 50 kn pennants, 10 kn full barbs and 5 kn half
     // barbs. Below 2.5 kn there is nothing to decompose - that is the
@@ -404,7 +399,7 @@
     // uses for cog. Feathers are attached starting at the tip (the biggest
     // units outermost, per convention) and step back towards the station,
     // all on the same side. Calm returns a single circle, no shaft.
-    // Pure geometry - no canvas calls - so it can be unit tested directly.
+    // Pure geometry - no canvas calls.
     // Proportions and layout follow the standard meteorological construction
     // (same as matplotlib's reference implementation): everything is relative
     // to the staff length - barbs reach 0.4 of it sideways, a pennant is 0.25
@@ -465,7 +460,7 @@
     }
 
     // -----------------------------------------------------------------
-    // WRRoutePoint - pure point-to-rows logic (unit tested without a DOM).
+    // WRRoutePoint - pure point-to-rows logic, no DOM needed.
     // Turns one route point into the compact fields the detail widget
     // shows, degrading missing values to a dash rather than NaN/undefined.
     // -----------------------------------------------------------------
@@ -503,7 +498,7 @@
     // (empty) parameter list used to render the number - never derive it
     // from the GPX's own declared unit, which need not agree.
     // Falls back to the GPX/default unit text when there is no avnav.api
-    // (the node unit tests) or this AvNav build predates unitFromParameters.
+    // or this AvNav build predates unitFromParameters.
     function speedUnitSuffix(rawUnit) {
         if (hasFormatter('formatSpeed') && typeof avnav.api.formatter.formatSpeed.unitFromParameters === 'function') {
             var u = avnav.api.formatter.formatSpeed.unitFromParameters([]);
@@ -515,7 +510,7 @@
     // direction/speed/decimal fields go through avnav.api.formatter when
     // it exists, so they follow the user's own unit/decimal settings just
     // like AvNav's own widgets - each with a pure fallback (used when there
-    // is no avnav.api, i.e. the node unit tests) that reproduces the exact
+    // is no avnav.api) that reproduces the exact
     // rounding this widget used before the formatter existed.
     function fmtDirectionNum(v) {
         if (hasFormatter('formatDirection')) return avnav.api.formatter.formatDirection(v).trim();
@@ -576,13 +571,9 @@
         return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     }
 
-    // turns a route point into the compact fields the WRRoutePoint widget
-    // displays: a flat, ordered list of {label,value} pairs (the caller
-    // lays them out, e.g. 2 pairs per grid row) plus a separate list of
-    // flag labels that are only present when actually set on the point.
     // splits a formatted value ("15.0 kn", "251°", "–") into the number and
     // its unit, so the detail widget can right-align every number in one
-    // column and left-align every unit in the next. Pure - unit tested.
+    // column and left-align every unit in the next. Pure.
     function splitValue(text) {
         if (text == null) return { num: DASH, unit: '' };
         var str = String(text).trim();
@@ -593,9 +584,11 @@
         return { num: str, unit: '' };
     }
 
-    // One value per line - the left widget column is too narrow to hold a
-    // label plus two values, and iOS inflates small text further (grouped
-    // pairs were measured wrapping on the boat's phone). Every line can be
+    // turns a route point into the fields the WRRoutePoint widget displays:
+    // an ordered list of {label, value, num, unit} plus a separate list of
+    // flag labels that are only present when actually set on the point.
+    // One value per line - a narrow widget column cannot hold a label plus
+    // two values, and iOS inflates small text further. Every line can be
     // switched off individually in the layout editor; the waypoint number and
     // its time default to off because the scrub control already shows both.
     function routePointRows(point, units, index, total, opts, settings) {
@@ -613,8 +606,8 @@
         };
         var num = function (name) { return fmtField(point, name, units); };
 
-        // the order below is the one the boat asked for, and the layout
-        // editor lists its switches in exactly the same order
+        // the layout editor lists its switches (routePointParameters) in
+        // exactly the same order as the lines below.
         // "n/total", not formatWaypointLabel()'s "WP n/total" - the label
         // cell already reads "WP".
         add('showWp', false, 'WP', (index || 0) + 1 + '/' + (total || 0));
@@ -634,14 +627,7 @@
         // the boat: speed and course, through water and over ground
         add('showStw', true, 'STW', num('stw'));
         add('showCtw', false, 'CTW', num('ctw'));
-        // SOG only earns a line when it actually adds information - i.e. it is
-        // present and meaningfully different from STW (current pushing the
-        // boat along or holding it back), otherwise it would just repeat STW.
-        var hasSog = typeof point.sog === 'number' && !isNaN(point.sog);
-        var hasStw = typeof point.stw === 'number' && !isNaN(point.stw);
-        if (hasSog && (!hasStw || Math.abs(point.sog - point.stw) >= 0.3)) {
-            add('showSog', true, 'SOG', num('sog'));
-        }
+        add('showSog', true, 'SOG', num('sog'));
         add('showCog', false, 'COG', num('cog'));
         // waves
         add('showSwh', true, 'SWH', num('swh'));
@@ -663,7 +649,7 @@
     }
 
     // -----------------------------------------------------------------
-    // maneuver/engine/night metadata - pure grouping logic (unit tested).
+    // maneuver/engine/night metadata - pure grouping logic.
     // -----------------------------------------------------------------
 
     // groups indices of `points` into contiguous runs where point[flagKey]
@@ -685,7 +671,7 @@
     }
 
     // -----------------------------------------------------------------
-    // version-dependent canvas rotation (see BRIEF.md):
+    // version-dependent canvas rotation:
     // from 20260104 on, the map canvas is pre-rotated - north-referenced
     // shapes need no extra rotation, text needs -getRotation(). Before
     // that it is the other way round.
@@ -714,28 +700,25 @@
     }
 
     // -----------------------------------------------------------------
-    // drawing (browser only - not exercised by the unit tests)
+    // drawing (browser only)
     // -----------------------------------------------------------------
 
     // colours with no AvNav equivalent (barbs, maneuver glyphs, engine
-    // overlay, the night-hours band, start/end/boat markers) - everything
-    // else is sourced from AvNav's own store properties per render, see
-    // resolveStyle() below.
+    // overlay, start/end markers) - everything else is sourced from AvNav's
+    // own store properties per render, see resolveStyle() below.
     var STATIC_STYLE = {
         start: '#2e8b2e',
         end: '#b02e2e',
-        boat: '#d04a00',
         barb: '#7b1fa2',
         maneuver: '#ff8f00',
         maneuverStroke: '#5c3c00',
         engine: '#6d4c1f'
     };
-    // accepts both #rgb and #rrggbb - AvNav's own documented defaults for
-    // fontColor/fontShadowColor are the 3-digit form ("#000"/"#fff", see
-    // getAvNavVersion-independent property definitions), so without the
-    // short form these two never actually dimmed at night (found by the
-    // browser night-mode test, not by inspection).
-    // parses #rgb / #rrggbb / rgb() / rgba() into components, or null
+
+    // parses #rgb / #rrggbb / rgb() / rgba() into components, or null.
+    // The #rgb shorthand matters: AvNav's own defaults for fontColor and
+    // fontShadowColor are "#000"/"#fff", and without it those two never
+    // dimmed at night.
     function parseColor(color) {
         if (typeof color !== 'string') return null;
         var m = /^#([\da-fA-F]{2})([\da-fA-F]{2})([\da-fA-F]{2})$/.exec(color);
@@ -760,29 +743,22 @@
         return c.a >= 1 ? 'rgb(' + rgb + ')' : 'rgba(' + rgb + ',' + c.a + ')';
     }
 
-    function hexToRgba(hex, alpha) {
-        var m = /^#([\da-fA-F]{2})([\da-fA-F]{2})([\da-fA-F]{2})$/.exec(hex);
-        if (m) return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + alpha + ')';
-        var m3 = /^#([\da-fA-F])([\da-fA-F])([\da-fA-F])$/.exec(hex);
-        if (m3) return 'rgba(' + parseInt(m3[1] + m3[1], 16) + ',' + parseInt(m3[2] + m3[2], 16) + ',' + parseInt(m3[3] + m3[3], 16) + ',' + alpha + ')';
-        // a colour that already carries an alpha (someone typed rgba(...) into
-        // the layout editor) keeps its own transparency - the dimming factor
-        // multiplies it rather than replacing it, otherwise night mode would
-        // silently leave such a colour at full brightness
-        var rgba = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(hex);
-        if (rgba) {
-            var own = rgba[4] === undefined ? 1 : parseFloat(rgba[4]);
-            var combined = Math.round(own * alpha * 1000) / 1000;
-            return 'rgba(' + Math.round(rgba[1]) + ',' + Math.round(rgba[2]) + ',' + Math.round(rgba[3]) + ',' + combined + ')';
-        }
-        return hex;
+    // applies an alpha to a colour, returning rgba(). A colour that already
+    // carries an alpha (someone typed rgba(...) into the layout editor) keeps
+    // its own transparency: the factor multiplies it rather than replacing
+    // it, otherwise night mode would leave such a colour at full brightness.
+    // Anything parseColor() does not understand is returned untouched.
+    function hexToRgba(color, alpha) {
+        var c = parseColor(color);
+        if (!c) return color;
+        var combined = Math.round(c.a * alpha * 1000) / 1000;
+        return 'rgba(' + Math.round(c.r) + ',' + Math.round(c.g) + ',' + Math.round(c.b) + ',' + combined + ')';
     }
 
     // AvNav's own night dimming (see getColor() in the viewer bundle):
-    // a hex colour becomes translucent by nightColorDim% while nightMode is
-    // on, which reads as "dimmed" against the map's own darkened tiles.
-    // Applied to our own colours (barb/maneuver/engine) that have no AvNav
-    // property to source from in the first place.
+    // a colour becomes translucent by nightColorDim% while nightMode is on,
+    // which reads as "dimmed" against the map's own darkened tiles. Applied
+    // to every colour the layer draws with, AvNav's and our own alike.
     function nightDim(color, nightMode, dimPercent) {
         if (!nightMode) return color;
         var pct = (typeof dimPercent === 'number' && !isNaN(dimPercent)) ? dimPercent : 60;
@@ -813,8 +789,8 @@
         return {
             route: nightDim(routeColor, nightMode, dim),
             waypoint: nightDim(routeColor, nightMode, dim),
-            // start/end/boat have no AvNav equivalent either - dim them the
-            // same way as barbs/maneuver/engine so nothing on the chart stays
+            // start/end have no AvNav equivalent either - dim them the same
+            // way as barbs/maneuver/engine so nothing on the chart stays
             // full-brightness once night mode is on.
             start: nightDim(STATIC_STYLE.start, nightMode, dim),
             end: nightDim(STATIC_STYLE.end, nightMode, dim),
@@ -878,7 +854,7 @@
         ctx.restore();
     }
 
-    function drawLabel(ctx, style, context, p, text, mapRotation, preRotated, scale) {
+    function drawLabel(ctx, style, p, text, mapRotation, preRotated, scale) {
         drawText(ctx, style, p, -10 * scale, text, mapRotation, preRotated, scale, {});
     }
 
@@ -1009,10 +985,9 @@
         });
     }
 
-    // engine and night are both "runs of flagged points along the route" -
-    // shared by drawEngineSegments. A single-point run has
-    // no segment to draw, so it gets a plain dot in the same color instead.
-    function drawFlagRuns(ctx, px, points, flagKey, drawRun, drawSingle) {
+    // draws each contiguous run of points flagged with flagKey. A
+    // single-point run has no segment to draw, so it gets drawSingle instead.
+    function drawFlagRuns(points, flagKey, drawRun, drawSingle) {
         flagRuns(points, flagKey).forEach(function (run) {
             if (run.end > run.start) drawRun(run);
             else drawSingle(run.start);
@@ -1022,7 +997,7 @@
     // dashed overlay along engine stretches - drawn on top of the route
     // line so motoring is unmistakable at a glance.
     function drawEngineSegments(ctx, style, px, points, scale) {
-        drawFlagRuns(ctx, px, points, 'engine', function (run) {
+        drawFlagRuns(points, 'engine', function (run) {
             ctx.save();
             ctx.setLineDash([5 * scale, 4 * scale]);
             // halo pass first (like labels/barbs/maneuver glyphs) - without
@@ -1038,8 +1013,8 @@
     }
 
     function drawRoute(context, props) {
-        // stashed for the browser tests (e.g. verifying night mode actually
-        // reaches the chart layer) - not used by drawing itself.
+        // stashed for inspection from the page (window.avnavWeatherRoute) -
+        // not used by drawing itself.
         state.lastRenderProps = props;
         var route = state.route;
         if (!route || !route.points || route.points.length < 1) return;
@@ -1095,7 +1070,7 @@
             var text = formatClock(t);
             if (lastDay !== null && key !== lastDay) text = formatDateShort(t) + ' ' + text;
             lastDay = key;
-            drawLabel(ctx, style, context, px[i], text, mapRotation, preRotated, scale);
+            drawLabel(ctx, style, px[i], text, mapRotation, preRotated, scale);
         });
 
         if (showMetadata) drawManeuverMarkers(ctx, style, px, points, mapRotation, preRotated, scale);
@@ -1112,71 +1087,149 @@
 
     // -----------------------------------------------------------------
     // route loading (user files)
+    //
+    // The file list from /api/user/list carries each file's modification
+    // time and size, so the layer polls it every POLL_INTERVAL_MS and only
+    // downloads the GPX again when the entry actually changed. A route that
+    // is recalculated and uploaded under the same name therefore shows up
+    // within a few seconds, without a page reload.
     // -----------------------------------------------------------------
 
-    function ensureRouteLoaded(props) {
-        var wanted = (props && props.routeFile) || '';
-        // a failed load must not be retried on every map render - only a
-        // changed routeFile parameter starts a new attempt
-        if (wanted === state.routeFile && (state.route || state.loading || state.loadError)) return;
-        state.routeFile = wanted;
-        state.route = null;
-        state.loadError = null;
+    var POLL_INTERVAL_MS = 10000;
+
+    function log(msg) {
+        if (typeof avnav !== 'undefined' && avnav && avnav.api && avnav.api.log) avnav.api.log(msg);
+    }
+
+    // the list entry to load: exactly the configured name, or - with no
+    // name configured - the first .gpx. Never a different file than the one
+    // asked for.
+    function findRouteItem(items, wanted) {
+        var gpxItems = (items || []).filter(function (it) {
+            return it && typeof it.name === 'string' && /\.gpx$/i.test(it.name);
+        });
+        if (wanted) return gpxItems.filter(function (it) { return it.name === wanted; })[0] || null;
+        return gpxItems[0] || null;
+    }
+
+    function itemChanged(item) {
+        return !state.route || item.name !== state.loadedFile ||
+            item.time !== state.loadedTime || item.size !== state.loadedSize;
+    }
+
+    function setLoadError(msg) {
+        if (msg && msg !== state.loadError) log('WR: ' + msg);
+        state.loadError = msg;
+    }
+
+    // installs a freshly parsed route. A scrub position survives a reload by
+    // time, not by index - after a recalculation the waypoint count changes
+    // but "the waypoint around 15:30" is still what the user was looking at.
+    function applyRoute(route, item) {
+        state.route = route;
+        state.loadedFile = item.name;
+        state.loadedTime = item.time;
+        state.loadedSize = item.size;
+        var pts = route.points;
+        if (state.mode === 'scrub' && pts.length) {
+            var idx = typeof state.scrubTime === 'number' ? nearestIndex(route, state.scrubTime) : state.selectedIndex;
+            idx = clampIndex(idx, pts.length);
+            state.selectedIndex = idx;
+            state.scrubTime = pts[idx].t;
+        }
+        log('WR: loaded ' + item.name + ' (' + pts.length + ' points)');
+    }
+
+    // one check of the user file list; downloads the GPX when it is new or
+    // changed (or always with force, after the routeFile parameter changed).
+    function checkRouteFile(force) {
+        if (state.loading) return;
+        var wanted = state.routeFile || '';
         state.loading = true;
         var gen = ++loadGeneration;
         fetch('/api/user/list').then(function (resp) {
             return resp.json();
         }).then(function (data) {
             if (gen !== loadGeneration) return;
-            var items = (data && data.items) || [];
-            var gpxItems = items.filter(function (it) {
-                return it && typeof it.name === 'string' && /\.gpx$/i.test(it.name);
-            });
-            var chosen = null;
-            if (wanted) {
-                chosen = gpxItems.filter(function (it) { return it.name === wanted; })[0];
-            }
-            if (!chosen) chosen = gpxItems[0];
+            var chosen = findRouteItem(data && data.items, wanted);
             if (!chosen) {
                 state.loading = false;
-                state.loadError = 'no .gpx user file found';
-                notify();
+                setLoadError(wanted ? 'route file "' + wanted + '" not found in user files' : 'no .gpx user file found');
+                // the file is gone - do not keep showing a route that no
+                // longer exists
+                if (state.route) {
+                    state.route = null;
+                    state.loadedFile = null;
+                    state.loadedTime = null;
+                    state.loadedSize = null;
+                    notify();
+                }
+                return;
+            }
+            if (!force && !itemChanged(chosen)) {
+                state.loading = false;
                 return;
             }
             return fetch(chosen.url).then(function (r2) { return r2.text(); }).then(function (text) {
                 if (gen !== loadGeneration) return;
-                state.route = parseGpx(text);
-                state.loadedFile = chosen.name;
+                applyRoute(parseGpx(text), chosen);
                 state.loading = false;
+                setLoadError(null);
                 notify();
             });
         }).catch(function (err) {
             if (gen !== loadGeneration) return;
             state.loading = false;
-            state.loadError = String(err);
-            if (typeof avnav !== 'undefined' && avnav && avnav.api && avnav.api.log) {
-                avnav.api.log('WR: failed to load route: ' + err);
-            }
+            setLoadError('failed to load route: ' + err);
             notify();
         });
     }
 
+    // called on every render: starts a (re)load only when the routeFile
+    // parameter changed; everything else is left to the poll timer.
+    function ensureRouteLoaded(props) {
+        var wanted = (props && props.routeFile) || '';
+        if (wanted === state.routeFile) return;
+        state.routeFile = wanted;
+        state.route = null;
+        state.loadedFile = null;
+        state.loadedTime = null;
+        state.loadedSize = null;
+        state.loadError = null;
+        state.loading = false;
+        loadGeneration++;   // abandons any load still in flight for the old name
+        checkRouteFile(true);
+    }
+
     // -----------------------------------------------------------------
-    // live redraw timer - keeps the boat moving without map interaction
+    // timers: a 1 s redraw tick keeps the boat moving without map
+    // interaction, a 10 s poll picks up a new or changed route file.
     // -----------------------------------------------------------------
 
     var timerHandle = null;
+    var pollHandle = null;
     function startTimer() {
-        if (timerHandle) return;
-        timerHandle = setInterval(function () {
-            if (state.mode === 'live') notify();
-        }, 1000);
+        if (!timerHandle) {
+            timerHandle = setInterval(function () {
+                if (state.mode === 'live') notify();
+            }, 1000);
+        }
+        if (!pollHandle) {
+            pollHandle = setInterval(function () {
+                if (state.routeFile !== null) checkRouteFile(false);
+            }, POLL_INTERVAL_MS);
+        }
     }
 
     function stopTimer() {
-        if (!timerHandle) return;
-        clearInterval(timerHandle);
-        timerHandle = null;
+        if (timerHandle) {
+            clearInterval(timerHandle);
+            timerHandle = null;
+        }
+        if (pollHandle) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+        }
     }
 
     // -----------------------------------------------------------------
@@ -1187,8 +1240,8 @@
         name: 'WRRouteLayer',
         type: 'map',
         // nightMode itself arrives as a reserved, automatically-injected
-        // prop (see BRIEF.md) - only the AvNav colour/dimming properties it
-        // pairs with need an explicit storeKey.
+        // prop - only the AvNav colour/dimming properties it pairs with
+        // need an explicit storeKey.
         storeKeys: {
             rtime: 'nav.gps.rtime',
             routeColor: 'properties.routeColor',
@@ -1216,7 +1269,7 @@
         routeFile: {
             type: 'STRING',
             default: '',
-            description: 'route GPX file name (from user files); empty = first .gpx found'
+            description: 'route GPX file name (from user files); empty = first .gpx found. Checked every 10 s for changes'
         },
         showBarbs: {
             type: 'BOOLEAN',
@@ -1240,7 +1293,7 @@
         showMetadata: {
             type: 'BOOLEAN',
             default: true,
-            description: 'draw maneuver markers, engine segments and night shading'
+            description: 'draw maneuver markers and engine segments'
         }
     };
 
@@ -1321,7 +1374,7 @@
     // WRRoutePoint - compact metadata readout for the current waypoint
     // (the scrubbed one in scrub mode, the nearest one to the boat in
     // live mode). Small on purpose: see routePointRows() for the pure
-    // field logic and plugin.css for the two-column grid layout.
+    // field logic and plugin.css for the three-column grid layout.
     // -----------------------------------------------------------------
 
     var routePointWidget = {
@@ -1345,9 +1398,7 @@
             var idx = state.mode === 'scrub' ? state.selectedIndex : nearestIndex(route, getLiveTime(props));
             idx = clampIndex(idx, total);
             var detail = routePointRows(pts[idx], route.units, idx, total, props, route.settings);
-            // one row per line, label and value on opposite ends - the row
-            // may wrap when the widget is narrow, which beats the value
-            // being clipped by the widget's own overflow:hidden
+            // one grid row per line: label, number, unit
             var cells = detail.fields.map(function (f) {
                 return '<span class="wrpLbl">' + avnav.api.escapeHtml(f.label) + '</span>' +
                     '<span class="wrpNum">' + avnav.api.escapeHtml(f.num) + '</span>' +
@@ -1390,7 +1441,7 @@
 
         showStw: { type: 'BOOLEAN', default: true, description: 'boat: speed through water' },
         showCtw: { type: 'BOOLEAN', default: false, description: 'boat: course through water' },
-        showSog: { type: 'BOOLEAN', default: true, description: 'boat: speed over ground, when it differs from STW' },
+        showSog: { type: 'BOOLEAN', default: true, description: 'boat: speed over ground' },
         showCog: { type: 'BOOLEAN', default: false, description: 'boat: course over ground (equals CTW without current)' },
 
         showSwh: { type: 'BOOLEAN', default: true, description: 'waves: significant height' },
@@ -1407,12 +1458,12 @@
         avnav.api.registerWidget(routeLayerWidget, routeLayerParameters);
         avnav.api.registerWidget(routeControlWidget);
         avnav.api.registerWidget(routePointWidget, routePointParameters);
-        avnav.api.log('WR: WRRouteLayer registered');
+        avnav.api.log('WR: widgets registered');
     }
 
     // -----------------------------------------------------------------
-    // public surface: exposed to the page for driving/inspecting from
-    // tests, and exported for the node unit tests.
+    // public surface: exposed on the page as window.avnavWeatherRoute for
+    // inspection, and as a CommonJS export when loaded outside a browser.
     // -----------------------------------------------------------------
 
     var WR = {
@@ -1421,7 +1472,6 @@
         parseColor: parseColor,
         lighten: lighten,
         interpolate: interpolate,
-        interpolateAngle: interpolateAngle,
         bearing: bearing,
         legHeading: legHeading,
         normalizeAngle: normalizeAngle,
@@ -1457,6 +1507,8 @@
         resolveStyle: resolveStyle,
         notify: notify,
         ensureRouteLoaded: ensureRouteLoaded,
+        checkRouteFile: checkRouteFile,
+        findRouteItem: findRouteItem,
         registerContext: registerContext,
         unregisterContext: unregisterContext
     };
