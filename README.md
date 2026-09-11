@@ -9,7 +9,7 @@ along the route with time, either live or stepped through by hand.
 The route is drawn as a separate reference layer. AvNav's own active route is
 never touched.
 
-![Weather route with wind barbs, tack markers and the two widgets](docs/screenshot.png)
+<img src="docs/screenshot.png" alt="Weather route with wind barbs, tack markers and the two widgets" width="360">
 
 ## Requirements
 
