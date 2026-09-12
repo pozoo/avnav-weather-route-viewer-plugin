@@ -703,16 +703,15 @@
     // drawing (browser only)
     // -----------------------------------------------------------------
 
-    // colours with no AvNav equivalent (barbs, maneuver glyphs, engine
-    // overlay, start/end markers) - everything else is sourced from AvNav's
+    // colours with no AvNav equivalent (barbs, maneuver glyphs, start/end
+    // markers) - everything else is sourced from AvNav's
     // own store properties per render, see resolveStyle() below.
     var STATIC_STYLE = {
         start: '#2e8b2e',
         end: '#b02e2e',
         barb: '#7b1fa2',
         maneuver: '#ff8f00',
-        maneuverStroke: '#5c3c00',
-        engine: '#6d4c1f'
+        maneuverStroke: '#5c3c00'
     };
 
     // parses #rgb / #rrggbb / rgb() / rgba() into components, or null.
@@ -790,7 +789,7 @@
             route: nightDim(routeColor, nightMode, dim),
             waypoint: nightDim(routeColor, nightMode, dim),
             // start/end have no AvNav equivalent either - dim them the same
-            // way as barbs/maneuver/engine so nothing on the chart stays
+            // way as barbs/maneuver so nothing on the chart stays
             // full-brightness once night mode is on.
             start: nightDim(STATIC_STYLE.start, nightMode, dim),
             end: nightDim(STATIC_STYLE.end, nightMode, dim),
@@ -806,8 +805,7 @@
             textScale: widgetFontSize / 14,
             barb: nightDim(STATIC_STYLE.barb, nightMode, dim),
             maneuver: nightDim(STATIC_STYLE.maneuver, nightMode, dim),
-            maneuverStroke: nightDim(STATIC_STYLE.maneuverStroke, nightMode, dim),
-            engine: nightDim(STATIC_STYLE.engine, nightMode, dim)
+            maneuverStroke: nightDim(STATIC_STYLE.maneuverStroke, nightMode, dim)
         };
     }
 
@@ -815,15 +813,6 @@
     var LABEL_MIN_PX = 70;
     var BARB_MIN_PX = 55;
     var MANEUVER_LABEL_MIN_PX = 46;
-
-    function drawSegment(ctx, a, b, color, width) {
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.moveTo(a[0], a[1]);
-        ctx.lineTo(b[0], b[1]);
-        ctx.stroke();
-    }
 
     function drawDot(ctx, p, radius, color) {
         ctx.beginPath();
@@ -994,21 +983,44 @@
         });
     }
 
-    // dashed overlay along engine stretches - drawn on top of the route
-    // line so motoring is unmistakable at a glance.
+    // true if the segment from point i to i+1 is motored - i.e. both of its
+    // ends are flagged. Matches the runs drawn by drawEngineSegments().
+    function isEngineSegment(points, i) {
+        return !!(points[i] && points[i].engine && points[i + 1] && points[i + 1].engine);
+    }
+
+    // strokes the polyline through px, skipping every segment for which
+    // skip(i) is true, so the skipped stretches stay empty for another pass.
+    function strokePolyline(ctx, px, color, width, skip) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        var open = false;
+        for (var i = 0; i + 1 < px.length; i++) {
+            if (skip && skip(i)) { open = false; continue; }
+            if (!open) { ctx.moveTo(px[i][0], px[i][1]); open = true; }
+            ctx.lineTo(px[i + 1][0], px[i + 1][1]);
+        }
+        ctx.stroke();
+    }
+
+    // engine stretches are drawn as short dashes in place of the route line
+    // (drawRoute leaves those segments out) - in the route's own colour, so
+    // the route reads as one line that is simply dashed where the engine
+    // runs, with no second colour mixed into it.
     function drawEngineSegments(ctx, style, px, points, scale) {
         drawFlagRuns(points, 'engine', function (run) {
             ctx.save();
             ctx.setLineDash([5 * scale, 4 * scale]);
-            // halo pass first (like labels/barbs/maneuver glyphs) - without
-            // it the dashes are hard to tell from the route line itself,
-            // especially over a dark chart or the route's own dark colour.
-            for (var j = run.start; j < run.end; j++) drawSegment(ctx, px[j], px[j + 1], style.labelHalo, 5 * scale);
-            for (var k = run.start; k < run.end; k++) drawSegment(ctx, px[k], px[k + 1], style.engine, 2.6 * scale);
+            ctx.beginPath();
+            ctx.strokeStyle = style.route;
+            ctx.lineWidth = 3 * scale;
+            ctx.moveTo(px[run.start][0], px[run.start][1]);
+            for (var j = run.start + 1; j <= run.end; j++) ctx.lineTo(px[j][0], px[j][1]);
+            ctx.stroke();
             ctx.restore();
         }, function (i) {
-            drawDot(ctx, px[i], 5 * scale, style.labelHalo);
-            drawDot(ctx, px[i], 4 * scale, style.engine);
+            drawDot(ctx, px[i], 4 * scale, style.route);
         });
     }
 
@@ -1035,17 +1047,15 @@
 
         ctx.save();
         // the whole route in one colour - which part is already behind the
-        // boat is obvious from the boat marker and the waypoint times
+        // boat is obvious from the boat marker and the waypoint times.
+        // Motored stretches are left out here and drawn dashed below.
+        var drawEngine = showMetadata && points.length > 1;
         if (points.length > 1) {
-            ctx.beginPath();
-            ctx.strokeStyle = style.route;
-            ctx.lineWidth = 3 * scale;
-            px.forEach(function (p, i) {
-                if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]);
-            });
-            ctx.stroke();
+            strokePolyline(ctx, px, style.route, 3 * scale, drawEngine
+                ? function (i) { return isEngineSegment(points, i); }
+                : null);
         }
-        if (showMetadata && points.length > 1) drawEngineSegments(ctx, style, px, points, scale);
+        if (drawEngine) drawEngineSegments(ctx, style, px, points, scale);
 
         var markerIdx = declutter(px, MARKER_MIN_PX * scale);
         markerIdx.forEach(function (i) { drawDot(ctx, px[i], 3 * scale, style.waypoint); });
