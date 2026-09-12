@@ -4,5 +4,6 @@ node_modules/
 # local working files, not published
 BRIEF.md
 todo.md
+CLAUDE.md
 *.gpx
 test/
