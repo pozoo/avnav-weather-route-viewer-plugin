@@ -27,6 +27,7 @@
         loadError: null,
         selectedIndex: 0,     // waypoint index selected by the scrub control
         mode: 'live',         // 'live' | 'scrub'
+        hidden: false,        // route display switched off from the control
         scrubTime: null,      // time of the selected waypoint while scrubbing
         lastRenderProps: null, // last props seen by drawRoute(), for inspection
         lastStyle: null
@@ -122,14 +123,36 @@
     function scrubStep(delta, props) {
         var pts = state.route && state.route.points;
         if (!pts || !pts.length) return;
+        // while the display is off the first press only brings it back -
+        // stepping a waypoint at the same time would move the route the
+        // moment it reappears, which is not what the press asked for.
+        if (state.hidden) {
+            state.hidden = false;
+            notify();
+            return;
+        }
         var current = state.mode === 'scrub' ? state.selectedIndex : nearestIndex(state.route, getLiveTime(props));
         selectWaypoint(stepIndex(current, delta, pts.length));
     }
 
-    // the "live" button: back to the current-time boat position.
+    // back to the current-time boat position, display on.
     function goLive() {
+        state.hidden = false;
         state.mode = 'live';
         notify();
+    }
+
+    // the LIVE button. Pressing it while already live switches the route
+    // display off - a route that is only a reference should be easy to get
+    // out of the way without editing the layout. Any button then brings it
+    // back: LIVE here, the arrows in scrubStep().
+    function liveButton() {
+        if (!state.hidden && state.mode === 'live') {
+            state.hidden = true;
+            notify();
+            return;
+        }
+        goLive();
     }
 
     function pad2(n) {
@@ -1076,6 +1099,7 @@
         // stashed for inspection from the page (window.avnavWeatherRoute) -
         // not used by drawing itself.
         state.lastRenderProps = props;
+        if (state.hidden) return;
         var route = state.route;
         if (!route || !route.points || route.points.length < 1) return;
         var ctx = context.getContext();
@@ -1378,7 +1402,7 @@
                 scrubStep(1, this.lastProps || {});
             };
             context.eventHandler.wrGoLive = function () {
-                goLive();
+                liveButton();
             };
         },
         finalizeFunction: function (context) {
@@ -1391,10 +1415,14 @@
             var route = state.route;
             var pts = route && route.points;
             var total = pts ? pts.length : 0;
+            var hidden = !!state.hidden;
             var isLive = state.mode !== 'scrub';
             var idx = isLive ? -1 : state.selectedIndex;
             var timeText, wpText;
-            if (isLive) {
+            if (hidden) {
+                timeText = '--:--';
+                wpText = 'OFF';
+            } else if (isLive) {
                 timeText = total ? formatClock(getDisplayTime(props)) : '--:--';
                 wpText = 'LIVE';
             } else {
@@ -1405,15 +1433,18 @@
             var replacements = {
                 time: timeText,
                 wpText: wpText,
-                liveClass: isLive ? ' wrActive' : '',
-                prevDisabled: (!isLive && idx <= 0) ? 'disabled' : '',
-                nextDisabled: (!isLive && total && idx >= total - 1) ? 'disabled' : ''
+                offClass: hidden ? ' wrOff' : '',
+                liveClass: (!hidden && isLive) ? ' wrActive' : '',
+                // while off, every button must stay pressable: each of them
+                // switches the display back on
+                prevDisabled: (!hidden && !isLive && idx <= 0) ? 'disabled' : '',
+                nextDisabled: (!hidden && !isLive && total && idx >= total - 1) ? 'disabled' : ''
             };
             // two rows: the info text spans the full widget width (needed -
             // the host's default 3em widgetData font size leaves little
             // room, and a narrow flex column between two buttons overflows
             // sideways into them), buttons go in their own row below.
-            var template = '<div class="widgetData wrControl">' +
+            var template = '<div class="widgetData wrControl${offClass}">' +
                 '<div class="wrControlInfo">' +
                 '<span class="wrControlTime">${time}</span>' +
                 '<span class="wrControlWp">${wpText}</span>' +
@@ -1447,6 +1478,12 @@
             unregisterContext(context);
         },
         renderHtml: function (props, context) {
+            // the route display is switched off from the control - showing
+            // waypoint values for a route that is not on the chart would be
+            // a half-off state, so this widget goes quiet with it
+            if (state.hidden) {
+                return '<div class="widgetData wrpWidget wrpEmpty">weather route off</div>';
+            }
             var route = state.route;
             var pts = route && route.points;
             var total = pts ? pts.length : 0;
@@ -1552,6 +1589,7 @@
         selectWaypoint: selectWaypoint,
         scrubStep: scrubStep,
         goLive: goLive,
+        liveButton: liveButton,
         formatWaypointLabel: formatWaypointLabel,
         routePointRows: routePointRows,
         routePointParameters: routePointParameters,

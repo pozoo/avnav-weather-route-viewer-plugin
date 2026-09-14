@@ -96,6 +96,13 @@
     opacity: 0.6;
 }
 
+/* display switched off: the readout is dimmed so the widget itself reads as
+   inactive, but the buttons keep their normal look - they are what switches
+   the route back on. */
+.wrControl.wrOff .wrControlInfo {
+    opacity: 0.45;
+}
+
 /* the selected/active state reuses AvNav's own active-element accent
    colour, the same one used for e.g. the active nav button. */
 .wrControl .wrLiveBtn.wrActive {
