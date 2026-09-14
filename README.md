@@ -40,6 +40,30 @@ The plugin checks the user files every 10 seconds. When the route is
 recalculated, upload the new file under the same name and the chart follows
 within a few seconds; no reload is needed.
 
+#### Uploading from an iPhone
+
+AvNav takes the file over HTTP, so an iOS Shortcut can upload a route straight
+from the phone:
+
+1. New shortcut, action **Get File** (Files) with *Show Document Picker* on.
+2. Action **Get Contents of URL**
+   - URL: `http://<avnav>:8080/api/user/upload?name=route.gpx&overwrite=true`
+   - Method **POST**
+   - Header `Content-Type` = `application/octet-stream`
+   - Request Body **File** -> the output of *Get File*
+3. Optional: **Show Notification** with the result (`{"status": "OK"}`).
+
+Run it, pick the `.gpx`, done. Keep the name fixed and set the layer's
+`routeFile` to it, so each upload replaces the route on the chart.
+
+The body must be the raw file: a *Form* (multipart) body or the default
+`application/x-www-form-urlencoded` makes the server consume the stream as
+form fields and the request then hangs. Without `overwrite=true` a second
+upload of the same name fails with 409. Names may not start with `__`.
+
+To share the file into the shortcut instead, turn on **Show in Share Sheet**
+in its details and make sure *Share Sheet Types* includes **Files**.
+
 ### 2. Add the widgets to a layout
 
 Open the main menu, choose **Layouts** and edit the current layout.
