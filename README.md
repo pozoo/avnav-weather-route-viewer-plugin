@@ -14,8 +14,8 @@ never touched.
 ## Requirements
 
 - AvNav 
-- A GPX file whose route points carry a `<time>` and the weather-routing
-  extensions described below.
+- A GPX file whose route points carry a `<time>`, ideally with the
+  weather-routing extensions described below.
 
 ## Installation
 
@@ -115,6 +115,19 @@ The plugin reads a `<rte>` (or, failing that, a `<trk>`) whose points carry a
 
 All fields are optional; missing values are shown as a dash. `night` and
 `engine` are `0`/`1`, `maneuver` is a word such as `tack`.
+
+### Routes without the extensions
+
+A plain GPX whose points carry only a position and a `<time>` - LuckGrib's
+weather route export, for example - works too. The route line, the waypoint
+dots and the arrival times are drawn as usual and the boat marker moves along
+it; the heading then comes from the leg geometry instead of `cog`. There are
+no barbs, maneuver markers or engine stretches, because there is no such data.
+
+WRRoutePoint leaves out every line the route has no values for, rather than
+showing a column of dashes: for a route like this it shows the waypoint number
+and its time. A route that does carry the data is unaffected - there, the
+switches in the layout editor decide as before.
 
 ## Troubleshooting
 

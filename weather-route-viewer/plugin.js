@@ -221,8 +221,24 @@
         return p;
     }
 
-    // parses the GPX into {name, units, settings, points[], start, end}.
-    // Prefers <rte>, falls back to <trk>. Missing fields are simply absent.
+    // the per-point fields the whole route actually carries. Routes exported
+    // by a router that only writes plain waypoints (LuckGrib and the like)
+    // have none of them - the detail widget then leaves those lines out
+    // instead of showing a column of dashes, see routePointRows().
+    function availableFields(points) {
+        var available = {};
+        points.forEach(function (p) {
+            if (!p) return;
+            Object.keys(p).forEach(function (k) {
+                if (p[k] !== null && p[k] !== undefined) available[k] = true;
+            });
+        });
+        return available;
+    }
+
+    // parses the GPX into {name, units, settings, points[], available,
+    // start, end}. Prefers <rte>, falls back to <trk>. Missing fields are
+    // simply absent.
     function parseGpx(xmlText) {
         var doc = new DOMParser().parseFromString(xmlText, 'text/xml');
         var units = {};
@@ -264,7 +280,8 @@
             var pts = container.getElementsByTagName(tagName);
             for (var j = 0; j < pts.length; j++) points.push(parsePoint(pts[j]));
         }
-        var route = { name: name, units: units, settings: settings, points: points };
+        var route = { name: name, units: units, settings: settings, points: points,
+            available: availableFields(points) };
         if (points.length) {
             route.start = points[0].t;
             route.end = points[points.length - 1].t;
@@ -584,6 +601,13 @@
         return { num: str, unit: '' };
     }
 
+    // the waypoint fields a router can supply, in no particular order - used
+    // to tell a route that carries data from one that is positions and times
+    // only. Flags (night/engine/maneuver) are not in here: they show up as
+    // flag labels, not as lines, and are absent on such a route anyway.
+    var DATA_FIELDS = ['gws', 'gwd', 'tws', 'gust', 'twd', 'twa', 'aws', 'awa',
+        'stw', 'ctw', 'sog', 'cog', 'swh', 'wavePeriod', 'waveDir'];
+
     // turns a route point into the fields the WRRoutePoint widget displays:
     // an ordered list of {label, value, num, unit} plus a separate list of
     // flag labels that are only present when actually set on the point.
@@ -591,20 +615,35 @@
     // two values, and iOS inflates small text further. Every line can be
     // switched off individually in the layout editor; the waypoint number and
     // its time default to off because the scrub control already shows both.
-    function routePointRows(point, units, index, total, opts, settings) {
+    function routePointRows(point, units, index, total, opts, settings, available) {
         point = point || {};
         settings = settings || {};
         opts = opts || {};
         var on = function (key, dflt) {
             return opts[key] === undefined ? dflt : opts[key] !== false;
         };
+        // `available` (route.available) lists the fields the route carries at
+        // all; without it nothing is filtered, so a caller that does not know
+        // the route gets every switched-on line as before.
+        var has = function (name) { return !available || !!available[name]; };
         var fields = [];
-        var add = function (key, dflt, label, value) {
-            if (!on(key, dflt)) return;
+        var push = function (label, value) {
             var parts = splitValue(value);
             fields.push({ label: label, value: value, num: parts.num, unit: parts.unit });
         };
+        var add = function (key, dflt, label, value) {
+            if (on(key, dflt)) push(label, value);
+        };
         var num = function (name) { return fmtField(point, name, units); };
+        // a waypoint field: dropped when no point of the route has it
+        var addNum = function (key, dflt, label, name) {
+            if (has(name)) add(key, dflt, label, num(name));
+        };
+        // a route-level setting from the GPX metadata - same everywhere, so
+        // it is dropped when the metadata does not carry it
+        var addSetting = function (key, label, name) {
+            if (!available || settings[name] != null) add(key, false, label, fmtField(settings, name, units));
+        };
 
         // the layout editor lists its switches (routePointParameters) in
         // exactly the same order as the lines below.
@@ -614,29 +653,38 @@
         add('showTime', false, 'Time', point.t != null ? formatClock(point.t) : DASH);
         // ground wind: the forecast wind over ground. Equals the true wind
         // unless the router worked with current, hence off by default.
-        add('showGws', false, 'GWS', num('gws'));
-        add('showGwd', false, 'GWD', num('gwd'));
+        addNum('showGws', false, 'GWS', 'gws');
+        addNum('showGwd', false, 'GWD', 'gwd');
         // true wind
-        add('showTws', true, 'TWS', num('tws'));
-        add('showGust', true, 'Gust', num('gust'));
-        add('showTwd', true, 'TWD', num('twd'));
-        add('showTwa', true, 'TWA', num('twa'));
+        addNum('showTws', true, 'TWS', 'tws');
+        addNum('showGust', true, 'Gust', 'gust');
+        addNum('showTwd', true, 'TWD', 'twd');
+        addNum('showTwa', true, 'TWA', 'twa');
         // apparent wind
-        add('showAws', false, 'AWS', num('aws'));
-        add('showAwa', false, 'AWA', num('awa'));
+        addNum('showAws', false, 'AWS', 'aws');
+        addNum('showAwa', false, 'AWA', 'awa');
         // the boat: speed and course, through water and over ground
-        add('showStw', true, 'STW', num('stw'));
-        add('showCtw', false, 'CTW', num('ctw'));
-        add('showSog', true, 'SOG', num('sog'));
-        add('showCog', false, 'COG', num('cog'));
+        addNum('showStw', true, 'STW', 'stw');
+        addNum('showCtw', false, 'CTW', 'ctw');
+        addNum('showSog', true, 'SOG', 'sog');
+        addNum('showCog', false, 'COG', 'cog');
         // waves
-        add('showSwh', true, 'SWH', num('swh'));
-        add('showPeriod', true, 'Period', num('wavePeriod'));
-        add('showWaveDir', true, 'Wave dir', num('waveDir'));
+        addNum('showSwh', true, 'SWH', 'swh');
+        addNum('showPeriod', true, 'Period', 'wavePeriod');
+        addNum('showWaveDir', true, 'Wave dir', 'waveDir');
         // route-level settings from the GPX metadata - the same for every
         // waypoint, so they are off by default
-        add('showMotorSpeed', false, 'Motor', fmtField(settings, 'motorSpeed', units));
-        add('showMotorBelowTws', false, 'Motor <', fmtField(settings, 'motorBelowTws', units));
+        addSetting('showMotorSpeed', 'Motor', 'motorSpeed');
+        addSetting('showMotorBelowTws', 'Motor <', 'motorBelowTws');
+
+        // a route with positions and times only (a plain GPX export) has no
+        // line left at this point - the widget would be an empty box, so it
+        // falls back to the waypoint and its time. A route that does carry
+        // data keeps showing exactly what the switches say, empty included.
+        if (!fields.length && available && !DATA_FIELDS.some(has) && point.t != null) {
+            push('WP', (index || 0) + 1 + '/' + (total || 0));
+            push('Time', formatClock(point.t));
+        }
 
         var flags = [];
         if (on('showFlags', true)) {
@@ -1407,7 +1455,7 @@
             }
             var idx = state.mode === 'scrub' ? state.selectedIndex : nearestIndex(route, getLiveTime(props));
             idx = clampIndex(idx, total);
-            var detail = routePointRows(pts[idx], route.units, idx, total, props, route.settings);
+            var detail = routePointRows(pts[idx], route.units, idx, total, props, route.settings, route.available);
             // one grid row per line: label, number, unit
             var cells = detail.fields.map(function (f) {
                 return '<span class="wrpLbl">' + avnav.api.escapeHtml(f.label) + '</span>' +
