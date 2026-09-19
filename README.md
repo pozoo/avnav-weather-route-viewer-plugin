@@ -47,7 +47,20 @@ from the phone:
 
 1. New shortcut, action **Get File** (Files) with *Show Document Picker* on.
 2. Action **Get Contents of URL**
-   - URL: `http://<avnav>:8080/api/user/upload?name=route.gpx&overwrite=true`
+   - URL - the compatibility form below works on every release, old and new:
+
+     ```
+     http://<avnav>/viewer/avnav_navi.php?request=upload&type=user&name=route.gpx&overwrite=true
+     ```
+
+     The 2026 builds also accept the shorter `/api` form, which the stable
+     releases (20250822 and earlier) do not have:
+
+     ```
+     http://<avnav>/api/user/upload?name=route.gpx&overwrite=true
+     ```
+
+     Add the port if AvNav does not answer on 80, e.g. `http://<avnav>:8080/...`.
    - Method **POST**
    - Header `Content-Type` = `application/octet-stream`
    - Request Body **File** -> the output of *Get File*
@@ -60,8 +73,15 @@ under a new name each time works too - set `routeFile` to a pattern such as
 
 The body must be the raw file: a *Form* (multipart) body or the default
 `application/x-www-form-urlencoded` makes the server consume the stream as
-form fields and the request then hangs. Without `overwrite=true` a second
-upload of the same name fails with 409. Names may not start with `__`.
+form fields and the request then hangs - this holds for both URLs above.
+Without `overwrite=true` a second upload of the same name fails with 409;
+the flag is compared as the literal `true`. Names may not start with `__`.
+
+To check what arrived, list the user files (any release):
+
+```
+http://<avnav>/viewer/avnav_navi.php?request=list&type=user
+```
 
 To share the file into the shortcut instead, turn on **Show in Share Sheet**
 in its details and make sure *Share Sheet Types* includes **Files**.
