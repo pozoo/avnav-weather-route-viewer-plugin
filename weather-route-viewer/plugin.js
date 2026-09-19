@@ -1172,8 +1172,11 @@
         idxs.forEach(function (i) {
             drawManeuverGlyph(ctx, style, px[i], scale);
             if (showLabel[i]) {
+                // no colour of its own: the maneuver name is text on the
+                // chart like the waypoint times, and reads in the same
+                // colour (AvNav's own font colour, dimmed at night)
                 drawText(ctx, style, px[i], 15 * scale, points[i].maneuver, mapRotation, preRotated, scale,
-                    { color: style.maneuverStroke, fontSize: 10, bold: true, baseline: 'top' });
+                    { fontSize: 10, bold: true, baseline: 'top' });
             }
         });
     }
