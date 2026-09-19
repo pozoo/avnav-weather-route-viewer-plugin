@@ -103,7 +103,7 @@ Click **Finished** to save the layout.
 ### 3. On the chart
 
 The map layer shows the route line, a dot and the arrival time at every
-waypoint, wind barbs for the true wind at the boat, a diamond at each tack or
+waypoint, wind barbs for the true wind at the boat, a gold diamond at each tack or
 gybe, dashed stretches where the router assumed engine, and the boat marker.
 In live mode the marker sits where the boat should be right now. With ◀ / ▶
 it jumps from waypoint to waypoint and the detail widget follows.
@@ -121,7 +121,7 @@ Set in the layout editor by clicking the widget.
 |---|---|---|
 | `routeFile` | empty | Name of the `.gpx` user file, exactly as listed. Wildcards (`*`, `?`) select the newest match, e.g. `R1_*.gpx`. Empty uses the newest `.gpx`. |
 | `showBarbs` | on | Draw wind barbs along the route. |
-| `routeLineColor` | `#27BE27` | Colour of the route line. Clear it to use AvNav's route colour. |
+| `routeLineColor` | `#7b1fa2` | Colour of the route line - the same magenta as the wind barbs. Clear it to use AvNav's route colour. |
 | `barbSpacing` | 55 | Minimum distance between barbs, in pixels. |
 | `showMetadata` | on | Draw tack/gybe markers and engine stretches. |
 

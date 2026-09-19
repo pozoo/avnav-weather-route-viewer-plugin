@@ -786,8 +786,13 @@
         start: '#2e8b2e',
         end: '#b02e2e',
         barb: '#7b1fa2',
-        maneuver: '#ff8f00',
-        maneuverStroke: '#5c3c00'
+        // gold against the magenta of the route and the barbs - the classic
+        // purple/gold pair, far enough from both to be spotted at a glance,
+        // and still legible over blue water and tan land
+        maneuver: '#ffb300',
+        // the glyph outline and the maneuver name, in the deep end of the
+        // route's own hue so the marker reads as part of the route
+        maneuverStroke: '#4a148c'
     };
 
     // parses #rgb / #rrggbb / rgb() / rgba() into components, or null.
@@ -897,18 +902,117 @@
         ctx.fill();
     }
 
+    // -----------------------------------------------------------------
+    // keeping the time labels off the wind barbs
+    //
+    // both belong to the same waypoint, so a label placed blindly above the
+    // point sits on the barb whenever the wind comes from ahead. The label
+    // gets a ring of candidate placements instead and takes the first one
+    // that clears every barb. All of it is plain geometry - see the unit
+    // tests in test/unit/labels.test.js.
+    // -----------------------------------------------------------------
+
+    function pointSegDistance(p, a, b) {
+        var vx = b[0] - a[0], vy = b[1] - a[1];
+        var len2 = vx * vx + vy * vy;
+        var t = len2 ? ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / len2 : 0;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var dx = p[0] - (a[0] + t * vx), dy = p[1] - (a[1] + t * vy);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function segmentsCross(a, b, c, d) {
+        var side = function (p, q, r) {
+            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+        };
+        var d1 = side(a, b, c), d2 = side(a, b, d), d3 = side(c, d, a), d4 = side(c, d, b);
+        return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+    }
+
+    // smallest distance between the segment a-b and an axis aligned rect
+    // {cx, cy, hw, hh}, 0 when they touch or overlap.
+    function segRectDistance(a, b, rect) {
+        var inside = function (p) {
+            return Math.abs(p[0] - rect.cx) <= rect.hw && Math.abs(p[1] - rect.cy) <= rect.hh;
+        };
+        if (inside(a) || inside(b)) return 0;
+        var x0 = rect.cx - rect.hw, x1 = rect.cx + rect.hw;
+        var y0 = rect.cy - rect.hh, y1 = rect.cy + rect.hh;
+        var corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+        var best = Infinity;
+        for (var i = 0; i < 4; i++) {
+            var c = corners[i], d = corners[(i + 1) % 4];
+            if (segmentsCross(a, b, c, d)) return 0;
+            best = Math.min(best, pointSegDistance(c, a, b), pointSegDistance(d, a, b));
+        }
+        return best;
+    }
+
+    // where a label may go, in the label's own (upright) frame: straight up
+    // first, so a waypoint with no barb near it keeps the placement the
+    // plugin always had.
+    var LABEL_PLACEMENTS = [
+        [0, -1], [0, 1],
+        [0.92, -0.38], [-0.92, -0.38],
+        [0.92, 0.38], [-0.92, 0.38],
+        [1, 0], [-1, 0]
+    ];
+
+    // picks the offset (canvas pixels, from the waypoint to the centre of the
+    // label) that keeps the label clear of the barbs. `barbs` are segments
+    // {a, b, r} in canvas coordinates, `rot` the text rotation.
+    function placeLabel(p, w, h, gap, barbs, rot) {
+        var cos = Math.cos(rot || 0), sin = Math.sin(rot || 0);
+        var best = null;
+        for (var i = 0; i < LABEL_PLACEMENTS.length; i++) {
+            var dir = LABEL_PLACEMENTS[i];
+            // push the label out until its own edge clears the waypoint
+            var reach = gap + Math.abs(dir[0]) * w / 2 + Math.abs(dir[1]) * h / 2;
+            var lx = dir[0] * reach, ly = dir[1] * reach;
+            var off = [lx * cos - ly * sin, lx * sin + ly * cos];
+            var clear = Infinity;
+            for (var j = 0; j < barbs.length; j++) {
+                var barb = barbs[j];
+                // the barb in the label's frame: shift to the label centre,
+                // undo the text rotation, then a plain axis aligned test
+                var toFrame = function (q) {
+                    var dx = q[0] - (p[0] + off[0]), dy = q[1] - (p[1] + off[1]);
+                    return [dx * cos + dy * sin, -dx * sin + dy * cos];
+                };
+                var d = segRectDistance(toFrame(barb.a), toFrame(barb.b),
+                    { cx: 0, cy: 0, hw: w / 2, hh: h / 2 }) - (barb.r || 0);
+                if (d < clear) clear = d;
+                if (clear <= 0) break;
+            }
+            if (clear > 0) return off;
+            if (!best || clear > best.clear) best = { off: off, clear: clear };
+        }
+        // everything is crowded - take the least bad placement
+        return best.off;
+    }
+
     // shared text-with-halo drawing, offset dy (device px) below p, rotated
     // to stay upright per textRotation(). drawLabel (time labels) and the
     // maneuver name label both go through this - only the offset, color and
     // baseline differ.
+    // the font drawText will use - also needed up front to measure a label
+    // before deciding where to put it
+    function labelFont(style, scale, opts) {
+        opts = opts || {};
+        var textScale = (typeof style.textScale === 'number' && !isNaN(style.textScale)) ? style.textScale : 1;
+        return {
+            font: (opts.bold ? 'bold ' : '') + ((opts.fontSize || 11) * scale * textScale) + 'px sans-serif',
+            size: (opts.fontSize || 11) * scale * textScale
+        };
+    }
+
     function drawText(ctx, style, p, dy, text, mapRotation, preRotated, scale, opts) {
         opts = opts || {};
         var rot = textRotation(mapRotation, preRotated);
         ctx.save();
-        ctx.translate(p[0], p[1] + dy);
+        ctx.translate(p[0] + (opts.dx || 0), p[1] + dy);
         if (rot) ctx.rotate(rot);
-        var textScale = (typeof style.textScale === 'number' && !isNaN(style.textScale)) ? style.textScale : 1;
-        ctx.font = (opts.bold ? 'bold ' : '') + ((opts.fontSize || 11) * scale * textScale) + 'px sans-serif';
+        ctx.font = labelFont(style, scale, opts).font;
         ctx.textAlign = 'center';
         ctx.textBaseline = opts.baseline || 'bottom';
         ctx.lineWidth = style.labelHaloWidth * scale;
@@ -919,8 +1023,13 @@
         ctx.restore();
     }
 
-    function drawLabel(ctx, style, p, text, mapRotation, preRotated, scale) {
-        drawText(ctx, style, p, -10 * scale, text, mapRotation, preRotated, scale, {});
+    // the time label at a waypoint. `off` is the offset to the centre of the
+    // label as chosen by placeLabel(); without one it keeps the plain
+    // placement above the waypoint.
+    function drawLabel(ctx, style, p, text, mapRotation, preRotated, scale, off) {
+        if (!off) return drawText(ctx, style, p, -10 * scale, text, mapRotation, preRotated, scale, {});
+        drawText(ctx, style, p, off[1], text, mapRotation, preRotated, scale,
+            { dx: off[0], baseline: 'middle' });
     }
 
     function strokeOrFillShape(ctx, shape) {
@@ -941,6 +1050,20 @@
             ctx.fill();
             ctx.stroke();
         }
+    }
+
+    // the stretch of canvas a barb covers: the shaft from the waypoint to
+    // its tip, plus a radius that takes in the feathers on the side and the
+    // halo around them. A calm circle has no shaft, so a == b.
+    function barbFootprint(p, twdDeg, speedKn, mapRotation, preRotated, scale) {
+        var feathers = barbFeathers(speedKn);
+        var shaftLen = 26 * scale;
+        if (feathers.calm) return { a: p, b: p, r: shaftLen * 0.15 + 3 * scale };
+        var angle = shapeRotation((twdDeg || 0) * Math.PI / 180, mapRotation, preRotated);
+        // the shaft is drawn from (0,0) to (0,-shaftLen) in the rotated frame
+        var tip = [p[0] + shaftLen * Math.sin(angle), p[1] - shaftLen * Math.cos(angle)];
+        // 0.4 * shaftLen is the sideways reach of a feather, see barbGeometry()
+        return { a: p, b: tip, r: shaftLen * 0.4 + 2 * scale };
     }
 
     // draws a wind barb at p, shaft pointing in the true direction the wind
@@ -1137,6 +1260,9 @@
         var markerIdx = declutter(px, MARKER_MIN_PX * scale);
         markerIdx.forEach(function (i) { drawDot(ctx, px[i], 3 * scale, style.waypoint); });
 
+        // the barbs are drawn first and remember where they landed, so the
+        // time labels below can be placed around them
+        var barbs = [];
         if (props.showBarbs !== false) {
             var barbSpacing = (typeof props.barbSpacing === 'number' && !isNaN(props.barbSpacing) && props.barbSpacing > 0)
                 ? props.barbSpacing : BARB_MIN_PX;
@@ -1145,11 +1271,17 @@
                 var pt = points[i];
                 if (pt.tws == null || pt.twd == null) return;
                 drawBarb(ctx, style, context, px[i], pt.twd, pt.tws, mapRotation, preRotated, scale);
+                barbs.push(barbFootprint(px[i], pt.twd, pt.tws, mapRotation, preRotated, scale));
             });
         }
 
+        // stashed for inspection from the page, like lastRenderProps
+        state.lastBarbs = barbs;
+
         var labelIdx = declutter(px, LABEL_MIN_PX * scale);
         var lastDay = null;
+        var labelRot = textRotation(mapRotation, preRotated);
+        var labelSize = labelFont(style, scale, {});
         labelIdx.forEach(function (i) {
             var t = points[i].t;
             if (t == null) return;
@@ -1157,7 +1289,21 @@
             var text = formatClock(t);
             if (lastDay !== null && key !== lastDay) text = formatDateShort(t) + ' ' + text;
             lastDay = key;
-            drawLabel(ctx, style, px[i], text, mapRotation, preRotated, scale);
+            var off = null;
+            if (barbs.length) {
+                ctx.font = labelSize.font;
+                var w = ctx.measureText(text).width;
+                // only the barbs that could possibly reach this label matter
+                var near = barbs.filter(function (b) {
+                    var dx = b.a[0] - px[i][0], dy = b.a[1] - px[i][1];
+                    return Math.sqrt(dx * dx + dy * dy) < 40 * scale + w;
+                });
+                if (near.length) {
+                    off = placeLabel(px[i], w + 4 * scale, labelSize.size + 4 * scale,
+                        10 * scale, near, labelRot);
+                }
+            }
+            drawLabel(ctx, style, px[i], text, mapRotation, preRotated, scale, off);
         });
 
         if (showMetadata) drawManeuverMarkers(ctx, style, px, points, mapRotation, preRotated, scale);
@@ -1414,11 +1560,11 @@
         },
         routeLineColor: {
             type: 'COLOR',
-            // a green in AvNav's own palette range (hue 120, saturation and
-            // lightness matching its bearing/track/nav colours) - AvNav's
-            // route colour itself is nearly black on a chart. Clear the field
-            // to follow AvNav's properties.routeColor instead.
-            default: '#27BE27',
+            // the same magenta the wind barbs use, so the whole layer reads
+            // as one thing and stands off the chart - AvNav's own route
+            // colour is nearly black on a chart. Clear the field to follow
+            // AvNav's properties.routeColor instead.
+            default: STATIC_STYLE.barb,
             description: "colour of the route line; clear it to follow AvNav's own route colour"
         },
         barbSpacing: {
@@ -1673,6 +1819,11 @@
         unregisterContext: unregisterContext,
         // the widget objects themselves, so the call signatures AvNav uses
         // can be exercised without a browser
+        pointSegDistance: pointSegDistance,
+        segRectDistance: segRectDistance,
+        placeLabel: placeLabel,
+        barbFootprint: barbFootprint,
+        LABEL_PLACEMENTS: LABEL_PLACEMENTS,
         routeLayerWidget: routeLayerWidget,
         routeControlWidget: routeControlWidget,
         routePointWidget: routePointWidget
