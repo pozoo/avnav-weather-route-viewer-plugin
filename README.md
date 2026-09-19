@@ -110,9 +110,11 @@ Set in the layout editor by clicking the widget.
 `showAwa`, `showStw`, `showCtw`, `showSog`, `showCog`, `showSwh`, `showPeriod`,
 `showWaveDir`, `showCurSpeed`, `showCurSet`, `showMotorSpeed`,
 `showMotorBelowTws` and `showFlags`.
-True wind, gust, boat speed, waves and the tack/night/engine flags are on by
-default; the current lines (`Cur` = drift, `Set` = the direction it sets
-towards) are off, so switch them on for a route that carries current.
+On by default: true wind (`TWS`, `Gust`, `TWD`, `TWA`), the boat's speed and
+course through the water and over ground (`STW`, `CTW`, `SOG`, `COG`), the wave
+height (`SWH`) and the tack/night/engine flags. Everything else is off, among it
+the current lines (`Cur` = drift, `Set` = the direction it sets towards) - switch
+those on for a route that carries current.
 
 **WRRouteControl** has no parameters.
 

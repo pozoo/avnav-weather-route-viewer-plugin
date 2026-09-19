@@ -690,13 +690,13 @@
         addNum('showAwa', false, 'AWA', 'awa');
         // the boat: speed and course, through water and over ground
         addNum('showStw', true, 'STW', 'stw');
-        addNum('showCtw', false, 'CTW', 'ctw');
+        addNum('showCtw', true, 'CTW', 'ctw');
         addNum('showSog', true, 'SOG', 'sog');
-        addNum('showCog', false, 'COG', 'cog');
+        addNum('showCog', true, 'COG', 'cog');
         // waves
         addNum('showSwh', true, 'SWH', 'swh');
-        addNum('showPeriod', true, 'Period', 'wavePeriod');
-        addNum('showWaveDir', true, 'Wave dir', 'waveDir');
+        addNum('showPeriod', false, 'Period', 'wavePeriod');
+        addNum('showWaveDir', false, 'Wave dir', 'waveDir');
         // current: speed ("drift") and the direction it sets towards
         addNum('showCurSpeed', false, 'Cur', 'curSpeed');
         addNum('showCurSet', false, 'Set', 'curSet');
@@ -1577,13 +1577,13 @@
         showAwa: { type: 'BOOLEAN', default: false, description: 'apparent wind: angle' },
 
         showStw: { type: 'BOOLEAN', default: true, description: 'boat: speed through water' },
-        showCtw: { type: 'BOOLEAN', default: false, description: 'boat: course through water' },
+        showCtw: { type: 'BOOLEAN', default: true, description: 'boat: course through water' },
         showSog: { type: 'BOOLEAN', default: true, description: 'boat: speed over ground' },
-        showCog: { type: 'BOOLEAN', default: false, description: 'boat: course over ground (equals CTW without current)' },
+        showCog: { type: 'BOOLEAN', default: true, description: 'boat: course over ground (equals CTW without current)' },
 
         showSwh: { type: 'BOOLEAN', default: true, description: 'waves: significant height' },
-        showPeriod: { type: 'BOOLEAN', default: true, description: 'waves: period' },
-        showWaveDir: { type: 'BOOLEAN', default: true, description: 'waves: direction' },
+        showPeriod: { type: 'BOOLEAN', default: false, description: 'waves: period' },
+        showWaveDir: { type: 'BOOLEAN', default: false, description: 'waves: direction' },
 
         showCurSpeed: { type: 'BOOLEAN', default: false, description: 'current: speed (drift)' },
         showCurSet: { type: 'BOOLEAN', default: false, description: 'current: the direction it sets towards' },
