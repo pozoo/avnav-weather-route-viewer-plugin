@@ -1260,6 +1260,12 @@
         log('WR: loaded ' + item.name + ' (' + pts.length + ' points)');
     }
 
+    // the user file list. This is AvNav's compatibility URL, not the newer
+    // /api/user/list: /api only exists from ~2026 on, while every build still
+    // serves this one, so the plugin works on the stable releases too. The
+    // response is the same {items:[{name,url,time,size}]} either way.
+    var USER_LIST_URL = '/viewer/avnav_navi.php?request=list&type=user';
+
     // one check of the user file list; downloads the GPX when it is new or
     // changed (or always with force, after the routeFile parameter changed).
     function checkRouteFile(force) {
@@ -1267,7 +1273,7 @@
         var wanted = state.routeFile || '';
         state.loading = true;
         var gen = ++loadGeneration;
-        fetch('/api/user/list').then(function (resp) {
+        fetch(USER_LIST_URL).then(function (resp) {
             return resp.json();
         }).then(function (data) {
             if (gen !== loadGeneration) return;
@@ -1384,6 +1390,12 @@
             unregisterContext(context);
         },
         renderCanvas: function (canvas, props, context) {
+            // AvNav hands the drawing context (lonLatToPixel, getContext,
+            // getRotation, getScale) in as `this` in every version; the third
+            // argument only exists from the 2026 builds on. Taking `this`
+            // keeps the layer working on the stable releases, where the
+            // argument is undefined and drawing threw before it began.
+            context = context || this;
             ensureRouteLoaded(props);
             drawRoute(context, props);
         }
@@ -1451,6 +1463,9 @@
             unregisterContext(context);
         },
         renderHtml: function (props, context) {
+            // same as the map layer: the widget context is `this` in every
+            // version, the second argument only in the newer ones
+            context = context || this;
             // stashed so the click handlers (which only get the event, not
             // props) can read the current live time when adopting it
             context.lastProps = props;
@@ -1520,6 +1535,7 @@
             unregisterContext(context);
         },
         renderHtml: function (props, context) {
+            context = context || this;
             // the route display is switched off from the control - showing
             // waypoint values for a route that is not on the chart would be
             // a half-off state, so this widget goes quiet with it
@@ -1654,7 +1670,12 @@
         patternToRegExp: patternToRegExp,
         newestItem: newestItem,
         registerContext: registerContext,
-        unregisterContext: unregisterContext
+        unregisterContext: unregisterContext,
+        // the widget objects themselves, so the call signatures AvNav uses
+        // can be exercised without a browser
+        routeLayerWidget: routeLayerWidget,
+        routeControlWidget: routeControlWidget,
+        routePointWidget: routePointWidget
     };
 
     if (typeof window !== 'undefined') window.avnavWeatherRoute = WR;
