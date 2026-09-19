@@ -1188,15 +1188,48 @@
         if (typeof avnav !== 'undefined' && avnav && avnav.api && avnav.api.log) avnav.api.log(msg);
     }
 
-    // the list entry to load: exactly the configured name, or - with no
-    // name configured - the first .gpx. Never a different file than the one
-    // asked for.
+    // true for a name that is meant as a wildcard pattern rather than a
+    // literal file name.
+    function isPattern(name) {
+        return /[*?]/.test(name);
+    }
+
+    // shell-style wildcards over a file name: * for any run of characters
+    // (including none), ? for exactly one. Everything else is matched
+    // literally, so a dot is a dot and not "any character". Matching is
+    // case sensitive, like the exact-name case.
+    function patternToRegExp(pattern) {
+        var rx = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '[\\s\\S]*')
+            .replace(/\?/g, '[\\s\\S]');
+        return new RegExp('^' + rx + '$');
+    }
+
+    // the most recently changed of a list of entries. AvNav reports each
+    // file's mtime as `time`; an entry without one counts as oldest.
+    function newestItem(items) {
+        return items.reduce(function (best, it) {
+            if (!best) return it;
+            return (it.time || 0) > (best.time || 0) ? it : best;
+        }, null) || null;
+    }
+
+    // the list entry to load. An exact name is taken exactly - never a
+    // substitute. A name with wildcards, or no name at all, selects the
+    // newest .gpx among the matches, so a fresh upload takes over by
+    // itself. AvNav lists the directory in filesystem order, which is
+    // neither newest-first nor alphabetical, so the choice must be made
+    // here rather than by taking the first entry.
     function findRouteItem(items, wanted) {
         var gpxItems = (items || []).filter(function (it) {
             return it && typeof it.name === 'string' && /\.gpx$/i.test(it.name);
         });
-        if (wanted) return gpxItems.filter(function (it) { return it.name === wanted; })[0] || null;
-        return gpxItems[0] || null;
+        if (!wanted) return newestItem(gpxItems);
+        if (isPattern(wanted)) {
+            var rx = patternToRegExp(wanted);
+            return newestItem(gpxItems.filter(function (it) { return rx.test(it.name); }));
+        }
+        return gpxItems.filter(function (it) { return it.name === wanted; })[0] || null;
     }
 
     function itemChanged(item) {
@@ -1241,7 +1274,11 @@
             var chosen = findRouteItem(data && data.items, wanted);
             if (!chosen) {
                 state.loading = false;
-                setLoadError(wanted ? 'route file "' + wanted + '" not found in user files' : 'no .gpx user file found');
+                setLoadError(wanted
+                    ? (isPattern(wanted)
+                        ? 'no .gpx user file matches "' + wanted + '"'
+                        : 'route file "' + wanted + '" not found in user files')
+                    : 'no .gpx user file found');
                 // the file is gone - do not keep showing a route that no
                 // longer exists
                 if (state.route) {
@@ -1613,6 +1650,9 @@
         ensureRouteLoaded: ensureRouteLoaded,
         checkRouteFile: checkRouteFile,
         findRouteItem: findRouteItem,
+        isPattern: isPattern,
+        patternToRegExp: patternToRegExp,
+        newestItem: newestItem,
         registerContext: registerContext,
         unregisterContext: unregisterContext
     };

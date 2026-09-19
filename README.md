@@ -54,7 +54,9 @@ from the phone:
 3. Optional: **Show Notification** with the result (`{"status": "OK"}`).
 
 Run it, pick the `.gpx`, done. Keep the name fixed and set the layer's
-`routeFile` to it, so each upload replaces the route on the chart.
+`routeFile` to it, so each upload replaces the route on the chart. Uploading
+under a new name each time works too - set `routeFile` to a pattern such as
+`R1_*.gpx` (or leave it empty) and the newest matching file is shown.
 
 The body must be the raw file: a *Form* (multipart) body or the default
 `application/x-www-form-urlencoded` makes the server consume the stream as
@@ -97,7 +99,7 @@ Set in the layout editor by clicking the widget.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `routeFile` | empty | Name of the `.gpx` user file, exactly as listed. Empty uses the first `.gpx` found. |
+| `routeFile` | empty | Name of the `.gpx` user file, exactly as listed. Wildcards (`*`, `?`) select the newest match, e.g. `R1_*.gpx`. Empty uses the newest `.gpx`. |
 | `showBarbs` | on | Draw wind barbs along the route. |
 | `routeLineColor` | `#27BE27` | Colour of the route line. Clear it to use AvNav's route colour. |
 | `barbSpacing` | 55 | Minimum distance between barbs, in pixels. |
@@ -158,9 +160,9 @@ switches in the layout editor decide as before.
 ## Troubleshooting
 
 - **Nothing on the chart**: check that a `.gpx` file is in the user files and
-  that WRRouteLayer is in the layout's map widgets. If `routeFile` is set it
-  must match the file name exactly; a name that does not exist shows nothing
-  rather than some other file.
+  that WRRouteLayer is in the layout's map widgets. A `routeFile` without
+  wildcards must match the file name exactly (case included); a name that does
+  not exist shows nothing rather than some other file.
 - **Widgets missing**: they only appear after being added to a layout.
 - The plugin logs messages prefixed `WR:` to the browser console.
 
