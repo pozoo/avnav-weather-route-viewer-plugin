@@ -1412,6 +1412,30 @@
     // response is the same {items:[{name,url,time,size}]} either way.
     var USER_LIST_URL = '/viewer/avnav_navi.php?request=list&type=user';
 
+    // The stable AvNav releases send user files without any Cache-Control
+    // (only Last-Modified), so a browser is free to serve a heuristically
+    // cached copy - Safari does, and the route then never changes on screen
+    // although the file list already reports the new time and size. The 2026
+    // builds send Cache-Control: no-store and do not have the problem.
+    // Tagging the download with the file's own mtime and size gives every
+    // version of a route its own URL, which every browser treats as a fresh
+    // resource; no-store on top for the ones that honour it.
+    // the tag is built from exactly the fields itemChanged() compares, so a
+    // file the plugin considers changed can never end up on the same url
+    function noCacheUrl(url, item) {
+        var tag = ((item && item.time) || 0) + '-' + ((item && item.size) || 0);
+        return url + (url.indexOf('?') < 0 ? '?' : '&') + '_wr=' + encodeURIComponent(tag);
+    }
+
+    function fetchNoCache(url) {
+        try {
+            return fetch(url, { cache: 'no-store' });
+        } catch (e) {
+            // older engines that choke on the option
+            return fetch(url);
+        }
+    }
+
     // one check of the user file list; downloads the GPX when it is new or
     // changed (or always with force, after the routeFile parameter changed).
     function checkRouteFile(force) {
@@ -1419,7 +1443,7 @@
         var wanted = state.routeFile || '';
         state.loading = true;
         var gen = ++loadGeneration;
-        fetch(USER_LIST_URL).then(function (resp) {
+        fetchNoCache(USER_LIST_URL).then(function (resp) {
             return resp.json();
         }).then(function (data) {
             if (gen !== loadGeneration) return;
@@ -1446,7 +1470,7 @@
                 state.loading = false;
                 return;
             }
-            return fetch(chosen.url).then(function (r2) { return r2.text(); }).then(function (text) {
+            return fetchNoCache(noCacheUrl(chosen.url, chosen)).then(function (r2) { return r2.text(); }).then(function (text) {
                 if (gen !== loadGeneration) return;
                 applyRoute(parseGpx(text), chosen);
                 state.loading = false;
@@ -1812,6 +1836,7 @@
         ensureRouteLoaded: ensureRouteLoaded,
         checkRouteFile: checkRouteFile,
         findRouteItem: findRouteItem,
+        noCacheUrl: noCacheUrl,
         isPattern: isPattern,
         patternToRegExp: patternToRegExp,
         newestItem: newestItem,
