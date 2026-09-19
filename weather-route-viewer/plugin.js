@@ -785,13 +785,18 @@
     var STATIC_STYLE = {
         start: '#2e8b2e',
         end: '#b02e2e',
-        barb: '#7b1fa2',
-        // gold against the magenta of the route and the barbs - the classic
-        // purple/gold pair, far enough from both to be spotted at a glance,
-        // and still legible over blue water and tan land
+        // teal 800. Vector charts use magenta (buoys, cables, tidal stream
+        // arrows), yellow (buoys), red and green (marks, light sectors) and a
+        // light blue (coastline, shallow water) - 160-195 degrees of hue is
+        // the one band they leave free, so a barb in it cannot be read as a
+        // chart symbol. The route line starts out in the same teal, but that
+        // is its own setting (routeLineColor) and may be changed to anything.
+        barb: '#00838f',
+        // gold against the teal - complementary, so it is spotted at a
+        // glance, and legible over blue water and tan land alike
         maneuver: '#ffb300',
-        // the glyph outline and the maneuver name, in the deep end of the
-        // route's own hue so the marker reads as part of the route
+        // the glyph outline and the maneuver name: dark enough to carry the
+        // small shape at any zoom without competing with the fill
         maneuverStroke: '#4a148c'
     };
 
@@ -1584,11 +1589,11 @@
         },
         routeLineColor: {
             type: 'COLOR',
-            // a magenta that stands off the chart, where AvNav's own route
+            // a teal that stands off the chart, where AvNav's own route
             // colour is nearly black. It starts out as the barb colour but
             // is a setting of its own - change it here and the barbs keep
             // theirs. Clear the field to follow AvNav's properties.routeColor.
-            default: '#7b1fa2',
+            default: '#00838f',
             description: "colour of the route line; clear it to follow AvNav's own route colour"
         },
         barbSpacing: {
