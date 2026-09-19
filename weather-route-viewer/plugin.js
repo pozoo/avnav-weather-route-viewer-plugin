@@ -963,6 +963,20 @@
         [1, 0], [-1, 0]
     ];
 
+    // a placed label as an obstacle for the ones after it: the rectangle is
+    // taken as a capsule - the segment along its long axis, thickened by half
+    // its height - which is the same shape placeLabel() already tests against.
+    function labelObstacle(centre, w, h, rot) {
+        var half = Math.max(0, w / 2 - h / 2);
+        var cos = Math.cos(rot || 0), sin = Math.sin(rot || 0);
+        var dx = half * cos, dy = half * sin;
+        return {
+            a: [centre[0] - dx, centre[1] - dy],
+            b: [centre[0] + dx, centre[1] + dy],
+            r: h / 2
+        };
+    }
+
     // picks the offset (canvas pixels, from the waypoint to the centre of the
     // label) that keeps the label clear of the barbs. `barbs` are segments
     // {a, b, r} in canvas coordinates, `rot` the text rotation.
@@ -997,9 +1011,8 @@
     }
 
     // shared text-with-halo drawing, offset dy (device px) below p, rotated
-    // to stay upright per textRotation(). drawLabel (time labels) and the
-    // maneuver name label both go through this - only the offset, color and
-    // baseline differ.
+    // to stay upright per textRotation(). Every piece of text on the chart
+    // goes through this - only the offset, colour and baseline differ.
     // the font drawText will use - also needed up front to measure a label
     // before deciding where to put it
     function labelFont(style, scale, opts) {
@@ -1028,13 +1041,32 @@
         ctx.restore();
     }
 
-    // the time label at a waypoint. `off` is the offset to the centre of the
-    // label as chosen by placeLabel(); without one it keeps the plain
-    // placement above the waypoint.
-    function drawLabel(ctx, style, p, text, mapRotation, preRotated, scale, off) {
-        if (!off) return drawText(ctx, style, p, -10 * scale, text, mapRotation, preRotated, scale, {});
-        drawText(ctx, style, p, off[1], text, mapRotation, preRotated, scale,
-            { dx: off[0], baseline: 'middle' });
+    // the size of a label block: the widest line by the summed line heights.
+    // Measuring needs the canvas, so the fonts are set here as a side effect.
+    function measureLabelBlock(ctx, style, lines, scale) {
+        var w = 0, h = 0;
+        lines.forEach(function (line) {
+            var f = labelFont(style, scale, line);
+            ctx.font = f.font;
+            w = Math.max(w, ctx.measureText(line.text).width);
+            line._h = f.size * 1.25;
+            h += line._h;
+        });
+        return { w: w, h: h };
+    }
+
+    // the label at a waypoint: the time, and below it the maneuver name when
+    // there is one. One block, so the two lines can never land on each other
+    // - they move together. `off` is the offset from the waypoint to the
+    // centre of the block as chosen by placeLabel().
+    function drawLabelBlock(ctx, style, p, lines, mapRotation, preRotated, scale, off, size) {
+        var top = -size.h / 2;
+        lines.forEach(function (line) {
+            var dy = top + line._h / 2;
+            drawText(ctx, style, p, off[1] + dy, line.text, mapRotation, preRotated, scale,
+                { dx: off[0], baseline: 'middle', fontSize: line.fontSize, bold: line.bold });
+            top += line._h;
+        });
     }
 
     function strokeOrFillShape(ctx, shape) {
@@ -1072,7 +1104,7 @@
     }
 
     // draws a wind barb at p, shaft pointing in the true direction the wind
-    // comes from (twdDeg). Halo pass first (like drawLabel), then the
+    // comes from (twdDeg). Halo pass first (like the labels), then the
     // colored shapes on top, so barbs stay legible over any chart.
     function drawBarb(ctx, style, context, p, twdDeg, speedKn, mapRotation, preRotated, scale) {
         var feathers = barbFeathers(speedKn);
@@ -1156,29 +1188,29 @@
         ctx.restore();
     }
 
-    // maneuver glyphs are drawn at every maneuver point (there are only a
-    // handful on a whole route); the name label is decluttered separately
-    // since a beat has several tacks close together on the chart.
-    function drawManeuverMarkers(ctx, style, px, points, mapRotation, preRotated, scale) {
+    // a glyph at every maneuver point - there are only a handful on a whole
+    // route. The names are a separate matter, see maneuverLabelIndices().
+    function drawManeuverGlyphs(ctx, style, px, points, scale) {
+        for (var i = 0; i < points.length; i++) {
+            if (points[i] && points[i].maneuver) drawManeuverGlyph(ctx, style, px[i], scale);
+        }
+    }
+
+    // which maneuver points get their name written out: a beat has several
+    // tacks close together on the chart, so the names are decluttered on
+    // their own, tighter than the time labels.
+    function maneuverLabelIndices(px, points, scale) {
         var idxs = [];
         for (var i = 0; i < points.length; i++) {
             if (points[i] && points[i].maneuver) idxs.push(i);
         }
-        if (!idxs.length) return;
+        var show = {};
+        if (!idxs.length) return show;
         var manPx = idxs.map(function (i) { return px[i]; });
-        var labelPositions = declutter(manPx, MANEUVER_LABEL_MIN_PX * scale);
-        var showLabel = {};
-        labelPositions.forEach(function (pos) { showLabel[idxs[pos]] = true; });
-        idxs.forEach(function (i) {
-            drawManeuverGlyph(ctx, style, px[i], scale);
-            if (showLabel[i]) {
-                // no colour of its own: the maneuver name is text on the
-                // chart like the waypoint times, and reads in the same
-                // colour (AvNav's own font colour, dimmed at night)
-                drawText(ctx, style, px[i], 15 * scale, points[i].maneuver, mapRotation, preRotated, scale,
-                    { fontSize: 10, bold: true, baseline: 'top' });
-            }
+        declutter(manPx, MANEUVER_LABEL_MIN_PX * scale).forEach(function (pos) {
+            show[idxs[pos]] = true;
         });
+        return show;
     }
 
     // draws each contiguous run of points flagged with flagKey. A
@@ -1286,10 +1318,14 @@
         // stashed for inspection from the page, like lastRenderProps
         state.lastBarbs = barbs;
 
+        // one label per waypoint, the time first and the maneuver name under
+        // it: two lines of the same block move together, so they cannot end
+        // up on top of each other whichever way the block is placed.
         var labelIdx = declutter(px, LABEL_MIN_PX * scale);
+        var maneuverNames = showMetadata ? maneuverLabelIndices(px, points, scale) : {};
+        var blocks = {};
+        var order = [];
         var lastDay = null;
-        var labelRot = textRotation(mapRotation, preRotated);
-        var labelSize = labelFont(style, scale, {});
         labelIdx.forEach(function (i) {
             var t = points[i].t;
             if (t == null) return;
@@ -1297,24 +1333,41 @@
             var text = formatClock(t);
             if (lastDay !== null && key !== lastDay) text = formatDateShort(t) + ' ' + text;
             lastDay = key;
-            var off = null;
-            if (barbs.length) {
-                ctx.font = labelSize.font;
-                var w = ctx.measureText(text).width;
-                // only the barbs that could possibly reach this label matter
-                var near = barbs.filter(function (b) {
-                    var dx = b.a[0] - px[i][0], dy = b.a[1] - px[i][1];
-                    return Math.sqrt(dx * dx + dy * dy) < 40 * scale + w;
-                });
-                if (near.length) {
-                    off = placeLabel(px[i], w + 4 * scale, labelSize.size + 4 * scale,
-                        10 * scale, near, labelRot);
-                }
+            blocks[i] = [{ text: text }];
+            order.push(i);
+        });
+        Object.keys(maneuverNames).forEach(function (key) {
+            var i = parseInt(key, 10);
+            if (!blocks[i]) {
+                blocks[i] = [];
+                order.push(i);
             }
-            drawLabel(ctx, style, px[i], text, mapRotation, preRotated, scale, off);
+            blocks[i].push({ text: points[i].maneuver, fontSize: 10, bold: true });
+        });
+        order.sort(function (a, b) { return a - b; });
+
+        var labelRot = textRotation(mapRotation, preRotated);
+        // every block placed so far joins the obstacles, so labels step
+        // around each other as well as around the barbs
+        var obstacles = barbs.slice();
+        order.forEach(function (i) {
+            var lines = blocks[i];
+            var size = measureLabelBlock(ctx, style, lines, scale);
+            var w = size.w + 4 * scale, h = size.h + 4 * scale;
+            var off = [0, -(10 * scale + h / 2)];
+            if (obstacles.length) {
+                var reach = 40 * scale + w;
+                var near = obstacles.filter(function (o) {
+                    var dx = o.a[0] - px[i][0], dy = o.a[1] - px[i][1];
+                    return Math.sqrt(dx * dx + dy * dy) < reach;
+                });
+                if (near.length) off = placeLabel(px[i], w, h, 10 * scale, near, labelRot);
+            }
+            drawLabelBlock(ctx, style, px[i], lines, mapRotation, preRotated, scale, off, size);
+            obstacles.push(labelObstacle([px[i][0] + off[0], px[i][1] + off[1]], w, h, labelRot));
         });
 
-        if (showMetadata) drawManeuverMarkers(ctx, style, px, points, mapRotation, preRotated, scale);
+        if (showMetadata) drawManeuverGlyphs(ctx, style, px, points, scale);
 
         drawDot(ctx, px[0], 6 * scale, style.start);
         drawDot(ctx, px[px.length - 1], 6 * scale, style.end);
@@ -1855,6 +1908,8 @@
         pointSegDistance: pointSegDistance,
         segRectDistance: segRectDistance,
         placeLabel: placeLabel,
+        labelObstacle: labelObstacle,
+        maneuverLabelIndices: maneuverLabelIndices,
         barbFootprint: barbFootprint,
         LABEL_PLACEMENTS: LABEL_PLACEMENTS,
         routeLayerWidget: routeLayerWidget,
