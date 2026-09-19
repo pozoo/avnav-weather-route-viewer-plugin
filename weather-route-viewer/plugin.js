@@ -1560,11 +1560,11 @@
         },
         routeLineColor: {
             type: 'COLOR',
-            // the same magenta the wind barbs use, so the whole layer reads
-            // as one thing and stands off the chart - AvNav's own route
-            // colour is nearly black on a chart. Clear the field to follow
-            // AvNav's properties.routeColor instead.
-            default: STATIC_STYLE.barb,
+            // a magenta that stands off the chart, where AvNav's own route
+            // colour is nearly black. It starts out as the barb colour but
+            // is a setting of its own - change it here and the barbs keep
+            // theirs. Clear the field to follow AvNav's properties.routeColor.
+            default: '#7b1fa2',
             description: "colour of the route line; clear it to follow AvNav's own route colour"
         },
         barbSpacing: {

@@ -121,7 +121,7 @@ Set in the layout editor by clicking the widget.
 |---|---|---|
 | `routeFile` | empty | Name of the `.gpx` user file, exactly as listed. Wildcards (`*`, `?`) select the newest match, e.g. `R1_*.gpx`. Empty uses the newest `.gpx`. |
 | `showBarbs` | on | Draw wind barbs along the route. |
-| `routeLineColor` | `#7b1fa2` | Colour of the route line - the same magenta as the wind barbs. Clear it to use AvNav's route colour. |
+| `routeLineColor` | `#7b1fa2` | Colour of the route line. Independent of the barb colour, which it only happens to match out of the box. Clear it to use AvNav's route colour. |
 | `barbSpacing` | 55 | Minimum distance between barbs, in pixels. |
 | `showMetadata` | on | Draw tack/gybe markers and engine stretches. |
 
