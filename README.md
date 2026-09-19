@@ -106,9 +106,11 @@ Set in the layout editor by clicking the widget.
 **WRRoutePoint** has one on/off switch per line: `showWp`, `showTime`,
 `showGws`, `showGwd`, `showTws`, `showGust`, `showTwd`, `showTwa`, `showAws`,
 `showAwa`, `showStw`, `showCtw`, `showSog`, `showCog`, `showSwh`, `showPeriod`,
-`showWaveDir`, `showMotorSpeed`, `showMotorBelowTws` and `showFlags`.
+`showWaveDir`, `showCurSpeed`, `showCurSet`, `showMotorSpeed`,
+`showMotorBelowTws` and `showFlags`.
 True wind, gust, boat speed, waves and the tack/night/engine flags are on by
-default.
+default; the current lines (`Cur` = drift, `Set` = the direction it sets
+towards) are off, so switch them on for a route that carries current.
 
 **WRRouteControl** has no parameters.
 
@@ -129,7 +131,7 @@ The plugin reads a `<rte>` (or, failing that, a `<trk>`) whose points carry a
     <rtept lat="54.4085" lon="11.0243">
       <time>2026-09-09T15:57:00Z</time>
       <extensions>
-        <wr:forecast>  <!-- gws gwd gust swh wavePeriod waveDir -->
+        <wr:forecast>  <!-- gws gwd gust swh wavePeriod waveDir curSpeed curSet -->
         <wr:boat>      <!-- tws twd stw sog ctw cog twa awa aws night engine maneuver -->
       </extensions>
     </rtept>

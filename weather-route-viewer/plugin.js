@@ -225,7 +225,7 @@
         }
         var forecast = el.getElementsByTagNameNS(WR_NS, 'forecast')[0];
         if (forecast) {
-            ['gws', 'gwd', 'gust', 'swh', 'wavePeriod', 'waveDir'].forEach(function (tag) {
+            ['gws', 'gwd', 'gust', 'swh', 'wavePeriod', 'waveDir', 'curSpeed', 'curSet'].forEach(function (tag) {
                 setNumNS(p, tag, forecast, tag);
             });
         }
@@ -513,6 +513,7 @@
     var DEFAULT_UNITS = {
         twd: 'deg', tws: 'kn', gust: 'kn', gwd: 'deg', gws: 'kn',
         swh: 'm', wavePeriod: 's', waveDir: 'deg',
+        curSpeed: 'kn', curSet: 'deg',
         stw: 'kn', sog: 'kn', twa: 'deg', awa: 'deg', aws: 'kn', cog: 'deg', ctw: 'deg',
         motorSpeed: 'kn', motorBelowTws: 'kn'
     };
@@ -582,14 +583,15 @@
     // (only relevant for speed/decimal - direction is always a whole degree).
     var FIELD_KIND = {
         twd: 'dir', twa: 'dir', waveDir: 'dir',
-        gwd: 'dir', awa: 'dir', cog: 'dir', ctw: 'dir',
+        gwd: 'dir', awa: 'dir', cog: 'dir', ctw: 'dir', curSet: 'dir',
         tws: 'speed', gust: 'speed', stw: 'speed', sog: 'speed',
         gws: 'speed', aws: 'speed', motorSpeed: 'speed', motorBelowTws: 'speed',
+        curSpeed: 'speed',
         swh: 'dec', wavePeriod: 'dec'
     };
     var FIELD_DECIMALS = {
         tws: 1, gust: 0, stw: 1, sog: 1, gws: 1, aws: 1, swh: 1, wavePeriod: 1,
-        motorSpeed: 1, motorBelowTws: 1
+        motorSpeed: 1, motorBelowTws: 1, curSpeed: 1
     };
 
     // formats one numeric field as "<value><unit suffix>", or a dash when
@@ -629,7 +631,7 @@
     // only. Flags (night/engine/maneuver) are not in here: they show up as
     // flag labels, not as lines, and are absent on such a route anyway.
     var DATA_FIELDS = ['gws', 'gwd', 'tws', 'gust', 'twd', 'twa', 'aws', 'awa',
-        'stw', 'ctw', 'sog', 'cog', 'swh', 'wavePeriod', 'waveDir'];
+        'stw', 'ctw', 'sog', 'cog', 'swh', 'wavePeriod', 'waveDir', 'curSpeed', 'curSet'];
 
     // turns a route point into the fields the WRRoutePoint widget displays:
     // an ordered list of {label, value, num, unit} plus a separate list of
@@ -695,6 +697,9 @@
         addNum('showSwh', true, 'SWH', 'swh');
         addNum('showPeriod', true, 'Period', 'wavePeriod');
         addNum('showWaveDir', true, 'Wave dir', 'waveDir');
+        // current: speed ("drift") and the direction it sets towards
+        addNum('showCurSpeed', false, 'Cur', 'curSpeed');
+        addNum('showCurSet', false, 'Set', 'curSet');
         // route-level settings from the GPX metadata - the same for every
         // waypoint, so they are off by default
         addSetting('showMotorSpeed', 'Motor', 'motorSpeed');
@@ -1542,6 +1547,9 @@
         showSwh: { type: 'BOOLEAN', default: true, description: 'waves: significant height' },
         showPeriod: { type: 'BOOLEAN', default: true, description: 'waves: period' },
         showWaveDir: { type: 'BOOLEAN', default: true, description: 'waves: direction' },
+
+        showCurSpeed: { type: 'BOOLEAN', default: false, description: 'current: speed (drift)' },
+        showCurSet: { type: 'BOOLEAN', default: false, description: 'current: the direction it sets towards' },
 
         showMotorSpeed: { type: 'BOOLEAN', default: false, description: 'route setting: the speed the router assumes under engine' },
         showMotorBelowTws: { type: 'BOOLEAN', default: false, description: 'route setting: motor when the true wind is below this speed' },
