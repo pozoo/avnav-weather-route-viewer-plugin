@@ -19,6 +19,9 @@ never touched.
 
 ## Installation
 
+Upload the release zip file from within AvNav in the Plugins menu.
+
+On older AvNav versions you need to copy it manually:
 1. Copy the `weather-route-viewer` directory into AvNav's plugin directory:
 
    ```
@@ -26,6 +29,8 @@ never touched.
    ```
 
 2. Restart AvNav.
+
+After that add the widgets to the layout, see below.
 
 ## Usage
 
