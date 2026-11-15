@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version in plugin.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          jq --arg v "$VERSION" '.version = $v' weather-route-viewer/plugin.json > plugin.json.tmp
+          mv plugin.json.tmp weather-route-viewer/plugin.json
+          cat weather-route-viewer/plugin.json
+
+      - name: Package plugin
+        run: zip -r "weather-route-viewer-${VERSION}.zip" weather-route-viewer -x "*.DS_Store"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "weather-route-viewer-${VERSION}.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --notes ""
